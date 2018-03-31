@@ -3,7 +3,7 @@ defmodule GrpcFake.Mixfile do
 
   def project do
     [
-      app: :grpc_fake,
+      app: :fun_registry,
       version: "0.1.0",
       elixir: "~> 1.5",
       start_permanent: Mix.env == :prod,

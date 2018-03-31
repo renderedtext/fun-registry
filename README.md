@@ -1,78 +1,121 @@
-# GRPC.Fake
+# FunRegistry - Function Registry
 
-Utility to set up fake GRPC servers and stub their responses.
+A dynamic function registry, useful for implementing dynamically modifiable
+processes.
+
+An example use case is the creation of fake GRPC that emulate remote servers,
+and can be usable in the development and test environments.
 
 ## Installation
+
+Add the following to your mixfile:
 
 ```elixir
 def deps do
   [
-    {:grpc_fake, github: "renderedtext/grpc-fake"}
+    {:fun_registry, github: "renderedtext/fun-registry", only: [:dev, :test]}
   ]
 end
 ```
 
-## Usage
+## Example usage for creating fake GRPC servers
 
-##### 1. Create a GRPC server from a servis definition
+First, we will create a fake server that emulates a remote Calculator service:
 
 ``` elixir
-defmodule Fake.CalcServer do
-  use GRPC.Server, service: Calc.Service
-  use GRPC.Fake
+defmodule CalculatorService do
+  use GRPC.Server, service: Calculator.Service
 
-  def add(req, stream), do: run_fake(:hello, [req, stream])
+  def add(req, stream) do
+    # instead of an implementation, we will relly on the FunRegistry
+    # to fetch and run a function
+
+    FunRegistry.run(__MODULE__, :add, [req, stream])
+  end
+end
+
+GRPC.Server.start(CalculatorService, 50051)
+```
+
+Let's connect to the calculator service and invoke some rpc methods:
+
+``` elixir
+def calculate_remotly(a, b) do
+  #
+  # in dev and test this is set to "localhost:50051"
+  # in prod we will connect to a real server
+  #
+  endpoint = Application.get_env(:my_app, :calculator_endpoint)
+
+  {:ok, channel} = GRPC.Server.connect(endpoint)
+
+  req = Calculator.AddRequest.new(a: 12, b: 13)
+
+  {:ok, res} = Calculator.Stub.add(req)
+
+  res.result
 end
 ```
 
-##### 2. Start the fake server and the fake services
+Now, we can use the function registry to simulate the behaviour of the remote
+server:
 
 ``` elixir
-{:ok, _} = GRPC.Fake.start
-{:ok, _, _ } = GRPC.Server.start(Fake.HelloServer, 50051)
-```
-
-##### 3. Use the fake in the tests to stub the answers
-
-``` elixir
-# code that needs testing
-
-def calculate(a, b) do
-  req = Calc.Request.new(a: a, b: b)
-
-  {:ok, channel} = GRPC.Server.connect("localhost:50051")
-  {:ok, res}     = Calc.Service.Stub.add(req)
-
-  res
-end
-```
-
-``` elixir
-# tests
-
 setup do
-  GRPC.Fake.clear_fakes!
+  FunRegistry.clear!
 end
 
-test "calculate with dummy response" do
-  Fake.HelloServer.fake!(:hello, Calc.Reponse.new(result: 90))
-
-  assert calculate(1, 2) == 90
-end
-
-test "calculate with fake that calculates the anwer" do
-  Fake.HelloServer.fake!(:hello, fun(req, res) ->
-    req.a + req.b
+test "calculate-remotly is able to communicate with remote servers" do
+  # first, we will stub the behaviour of the server
+  FunRegistry.set!(CalculatorService, :add, fn(req, _) ->
+    Calculator.AddResponse.new(result: req.a + req.b)
   end)
 
-  assert calculate(1, 2) == 3
+  assert calculate_remotly(1, 2) == 10
 end
 
-test "calculate with broken remote server" do
-  Fake.HelloServer.fake!(:hello, fun(req, res) ->
-    :timer.sleep(50000)
+test "calculate-remotly is able to communicate with remote servers stubbed version" do
+  # instead of functions, we can set a stubbed response directly
+  FunRegistry.set!(CalculatorService, :add, 10)
+
+  assert calculate_remotly(1, 2) == 10
+end
+
+test "calculate-remotly passes the correct data to the remo service" do
+  # we will store the values in an agent
+  {:ok, agent} = Agent.new(fn -> nil end)
+
+  # instead of functions, we can set a stubbed response directly
+  FunRegistry.set!(CalculatorService, :add, fun(req, _) ->
+    Agent.update(agent, fn state -> {req.a, req.b} end)
   end)
 
-  assert_raise fn -> calculate(1, 2) end
+  # execute the remote call
+  calculate_remotly(1, 2) == 10
+
+  # fetch the data that was received by the remote server
+  values = Agent.get(agent, pid, fn s -> s end)
+
+  # make sure that the remote server got the correct info
+  assert values == {1, 2}
+end
+
+test "calculate service is too slow" do
+  # first, we will stub the behaviour of the server
+  FunRegistry.set!(CalculatorService, :add, fun(_, _) ->
+    :timer.sleep(5000)
+  end)
+
+  assert_raise fn -> calculate_remotly(1, 2) end)
+end
+
+test "calculate service is broken" do
+  # first, we will stub the behaviour of the server
+  FunRegistry.set!(CalculatorService, :add, fun(_, _) ->
+    raise "I don't feel well"
+  end)
+
+  assert_raise fn -> calculate_remotly(1, 2) end)
 end
 ```
+
