@@ -1,10 +1,10 @@
 # FunRegistry - Function Registry
 
-A dynamic function registry, useful for implementing dynamically modifiable
-processes.
+A dynamic function registry, useful for implementing processes that can be
+modified during their lifetime.
 
-An example use case is the creation of fake GRPC that emulate remote servers,
-and can be usable in the development and test environments.
+An example use case is the creation of fake GRPC that emulates remote servers.
+This is useful in development and test environments.
 
 ## Installation
 
@@ -76,12 +76,12 @@ end
 
 test "calculate-remotly is able to communicate with remote servers stubbed version" do
   # instead of functions, we can set a stubbed response directly
-  FunRegistry.set!(CalculatorService, :add, 10)
+  FunRegistry.set!(CalculatorService, :add, Calculator.AddResponse.new(result: 10))
 
   assert calculate_remotly(1, 2) == 10
 end
 
-test "calculate-remotly passes the correct data to the remo service" do
+test "calculate-remotly passes the correct data to the remote service" do
   # we will store the values in an agent
   {:ok, agent} = Agent.new(fn -> nil end)
 
